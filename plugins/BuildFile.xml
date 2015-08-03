@@ -1,0 +1,11 @@
+<use   name="FWCore/Framework"/>
+<use   name="FWCore/PluginManager"/>
+<use   name="FWCore/ParameterSet"/>
+<use   name="FWCore/ServiceRegistry"/>
+<use   name="CommonTools/UtilAlgos"/>
+<use   name="root"/>
+<use   name="SimDataFormats/Vertex"/>
+<use   name="SimDataFormats/TrackingAnalysis"/>
+<!-- <use   name="SimDataFormats/PileupSummaryInfo"/> -->
+<!-- <use   name="SimDataFormats/EncodedEventId"/> -->
+<flags EDM_PLUGIN="1"/>
