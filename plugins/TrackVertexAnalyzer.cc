@@ -152,56 +152,53 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
   event.getByToken(vertexAssociatorToken_, hvassociator);
 
   // Get RECO-to-SIM vertex association
-  std::cout << "Get RECO-to-SIM vertex association";
+  LogDebug("TrackVertexAnalyzer") << "Get RECO-to-SIM vertex association\n";
   auto v_r2s = hvassociator->associateRecoToSim(hvertex, htv);
-  std::cout << "hvertex->size(): " << hvertex->size() << std::endl;
+  LogDebug("TrackVertexAnalyzer") << "hvertex->size(): " << hvertex->size() << std::endl;
   for ( unsigned int irv = 0; irv != hvertex->size(); irv++ ) {
-    std::cout << "Matching to RECO vertex: " << irv << std::endl;
+    LogDebug("TrackVertexAnalyzer") << "Matching to RECO vertex: " << irv << std::endl;
     int nMatch = 0;
     auto rvRef = hvertex->refAt(irv);
-    std::cout << "rvRef == NULL: " << rvRef.isNull() << std::endl;
-    auto vec_tv_quality = v_r2s[rvRef];
-    for (const auto tv_quality : vec_tv_quality) {
-      TrackingVertexRef tv = tv_quality.first;
-      std::cout << tv->nG4Vertices() << std::endl;
-      nMatch++;
+    LogDebug("TrackVertexAnalyzer") << "rvRef == NULL: " << rvRef.isNull() << std::endl;
+    // Skip unmatched RECO vertices
+    if ( v_r2s.find(rvRef) != v_r2s.end() ) {
+      auto vec_tv_quality = v_r2s[rvRef];
+      for (const auto tv_quality : vec_tv_quality) {
+        TrackingVertexRef tv = tv_quality.first;
+        LogDebug("TrackVertexAnalyzer") << tv->nG4Vertices() << std::endl;
+        nMatch++;
+      }
     }
-    std::cout << "Matched " << nMatch << " SIM vertices" << irv << std::endl;
+    LogDebug("TrackVertexAnalyzer") << "Matched " << nMatch << " SIM vertices to RECO vertex: " << irv << std::endl;
     output.rv_nMatch.push_back(nMatch);
   }
-  // for ( unsigned int irv = 0; irv != hvertex->size(); irv++ ) {
-  //   std::cout << "Matching to RECO vertex: " << irv << std::endl;
-  //   int nMatch = 0;
-  //   auto rvRef = hvertex->refAt(irv);
-  //   std::vector<TrackingVertexRef> tvs;
-  //   for(auto it = v_r2s.begin(); it != v_r2s.end(); ++it) {
-  //     if ( it->key == rvRef ) {
-  //       // vector of std::pair<TrackingVertexRef, double>, with rvRef as key
-  //       auto vec_tv_quality = it->val;
-  //       for (const auto tv_quality : vec_tv_quality) {
-  //         tvs.push_back( tv_quality.first );
-  //         TrackingVertexRef tv = tv_quality.first;
-  //         std::cout << (*tv).nG4Vertices() << std::endl;
-  //         nMatch++;
-  //       }
-  //     }
-  //   }
-  //   std::cout << "Matched " << nMatch << " SIM vertices" << irv << std::endl;
-  //   output.rv_nMatch.push_back(nMatch);
-  // }
 
   // Get SIM-to-RECO vertex association
   auto v_s2r = hvassociator->associateSimToReco(hvertex, htv);
+  int currentEvent = -1;
   for ( unsigned int itv = 0; itv != htv->size(); itv++ ) {
-    std::cout << "Matching to SIM vertex: " << itv << std::endl;
     int nMatch = 0;
     // auto tv = htv[itv];
     // edm::Ref<TrackingVertexCollection> tvRef(htv, itv);
-    const TrackingVertexRef tv(htv, itv);
-    const auto vec_rv_quality = v_s2r[tv];
-    for (const auto rv_quality : vec_rv_quality) {
-      // auto quality = rv_quality.second;
-      nMatch++;
+    const TrackingVertexRef tvRef(htv, itv);
+    if ( v_s2r.find(tvRef) != v_s2r.end() ) {
+      // Only run over primary vertices of the in-time pileup
+      // events (BX=0, first vertex in each of the events)
+      if(tvRef->eventId().bunchCrossing() != 0) continue;
+      if(tvRef->eventId().event() != currentEvent) {
+        currentEvent = tvRef->eventId().event();
+      }
+      else {
+        continue;
+      }
+      LogDebug("TrackVertexAnalyzer") << "Matching to SIM vertex: " << itv << std::endl;
+      LogDebug("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
+      LogDebug("TrackVertexAnalyzer") << "currentEvent: " << currentEvent << std::endl;
+      const auto vec_rv_quality = v_s2r[tvRef];
+      for (const auto rv_quality : vec_rv_quality) {
+        // auto quality = rv_quality.second;
+        nMatch++;
+      }
     }
     output.tv_nMatch.push_back(nMatch);
   }
