@@ -1,11 +1,7 @@
 import FWCore.ParameterSet.Config as cms
 
-process = cms.Process("TrackVertexAnalyzer")
+process = cms.Process("TVA")
 
-# message logger
-process.MessageLogger = cms.Service("MessageLogger",
-     default = cms.untracked.PSet( limit = cms.untracked.int32(10) )
-)
 
 
 #Adding SimpleMemoryCheck service:
@@ -85,13 +81,35 @@ from Configuration.AlCa.GlobalTag_condDBv2 import GlobalTag
 process.GlobalTag = GlobalTag(process.GlobalTag, 'auto:run2_mc', '')
 
 ### standard includes
-process.load('Configuration/StandardSequences/Services_cff')
+process.load('Configuration.StandardSequences.Services_cff')
 process.load('Configuration.StandardSequences.GeometryRecoDB_cff')
 process.load("Configuration.StandardSequences.RawToDigi_cff")
 process.load("Configuration.EventContent.EventContent_cff")
 process.load("Configuration.StandardSequences.Reconstruction_cff")
 process.load("Configuration.StandardSequences.MagneticField_cff")
 process.load('Configuration.StandardSequences.EndOfProcess_cff')
+
+# message logger
+process.load("FWCore.MessageLogger.MessageLogger_cfi")
+# process.MessageLogger = cms.Service("MessageLogger",
+#      default = cms.untracked.PSet( limit = cms.untracked.int32(10) )
+# )
+process.MessageLogger = cms.Service("MessageLogger",
+    destinations = cms.untracked.vstring('cout'),
+    categories = cms.untracked.vstring('TrackVertexAnalyzer'),
+    debugModules = cms.untracked.vstring('trackVertexAnalyzer'),
+    cout         = cms.untracked.PSet(
+        threshold = cms.untracked.string('DEBUG'),
+        # DEBUG = cms.untracked.int32(0),
+        INFO = cms.untracked.PSet(
+            limit = cms.untracked.int32(0),
+        ),
+        WARNING = cms.untracked.PSet(
+            limit = cms.untracked.int32(0),
+        ),
+    )
+)
+
 
 
 # ### validation-specific includes
@@ -118,11 +136,11 @@ process.val = cms.Path(
     process.validation
 )
 
-process.options = cms.untracked.PSet(
-    numberOfThreads = cms.untracked.uint32(8),
-    numberOfStreams = cms.untracked.uint32(8),
-    # wantSummary = cms.untracked.bool(True)
-)
+# process.options = cms.untracked.PSet(
+#     numberOfThreads = cms.untracked.uint32(8),
+#     numberOfStreams = cms.untracked.uint32(8),
+#     # wantSummary = cms.untracked.bool(True)
+# )
 
 #
 #
