@@ -12,7 +12,6 @@ cmsenv
 git cms-init
 # Checkout MultiTrackValidator package
 git cms-addpkg Validation/RecoTrack/
-# Checkout Matti's PR
 # Checkout TrackVertexAnalyzer in desired location
 mkdir JetMetTesting; cd JetMetTesting
 git clone https://github.com/yhshin11/TrackVertexAnalyzer.git
