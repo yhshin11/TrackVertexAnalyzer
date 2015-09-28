@@ -7,7 +7,11 @@ from SimTracker.TrackAssociation.CosmicParametersDefinerForTP_cfi import *
 from Validation.RecoTrack.MTVHistoProducerAlgoForTrackerBlock_cfi import *
 
 # From TrackValidation_cff.py
+from SimTracker.TrackAssociatorProducers.quickTrackAssociatorByHits_cfi import *
 from SimTracker.VertexAssociation.VertexAssociatorByPositionAndTracks_cfi import *
+
+# From correctionTermsPfMetType0PFCandidate_cff.py
+from JetMETCorrections.Type1MET.pfMETCorrectionType0_cfi import *
 
 trackVertexAnalyzer = cms.EDAnalyzer(
     "TrackVertexAnalyzer",
@@ -33,11 +37,12 @@ trackVertexAnalyzer = cms.EDAnalyzer(
     # #associators = cms.untracked.VInputTag("quickTrackAssociatorByHits"),
     # # if False, the src's above should specify the TP-RecoTrack association
     # # if True, the src's above should specify the associator
-    # UseAssociators = cms.bool(False),
+    associators = cms.untracked.VInputTag("quickTrackAssociatorByHits"),
+    UseAssociators = cms.bool(True),
 
     ### sim input configuration ###
-    # label_tp_effic = cms.InputTag("mix","MergedTrackTruth"),
-    # label_tp_fake = cms.InputTag("mix","MergedTrackTruth"),
+    label_tp_effic = cms.InputTag("mix","MergedTrackTruth"),
+    label_tp_fake = cms.InputTag("mix","MergedTrackTruth"),
     label_tv = cms.InputTag("mix","MergedTrackTruth"),
     # label_pileupinfo = cms.InputTag("addPileupInfo"),
     # sim = cms.VInputTag(
@@ -59,7 +64,7 @@ trackVertexAnalyzer = cms.EDAnalyzer(
     # simHitTpMapTag = cms.InputTag("simHitTPAssocProducer"),               # needed by CosmicParametersDefinerForTP
     #
     # ### reco input configuration ###
-    # label = cms.VInputTag(cms.InputTag("generalTracks")),
+    label = cms.VInputTag(cms.InputTag("generalTracks")),
     # beamSpot = cms.InputTag("offlineBeamSpot"),
     #
     # ### dE/dx configuration ###
@@ -82,5 +87,8 @@ trackVertexAnalyzer = cms.EDAnalyzer(
     # doSimTrackPlots = cms.untracked.bool(True),
     # doRecoTrackPlots = cms.untracked.bool(True),
     # dodEdxPlots = cms.untracked.bool(False),
+
+    ### For evaluating track-vertex association performance
+    srcPFCandidateToVertexAssociations = cms.InputTag('pfCandidateToVertexAssociation'),
 )
 

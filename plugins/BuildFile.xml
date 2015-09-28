@@ -6,6 +6,7 @@
 <use   name="root"/>
 <use   name="SimDataFormats/Vertex"/>
 <use   name="SimDataFormats/TrackingAnalysis"/>
+<use   name="DataFormats/ParticleFlowCandidate"/>
 <!-- <use   name="SimDataFormats/PileupSummaryInfo"/> -->
 <!-- <use   name="SimDataFormats/EncodedEventId"/> -->
 <flags EDM_PLUGIN="1"/>

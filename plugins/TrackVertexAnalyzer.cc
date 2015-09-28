@@ -30,7 +30,11 @@ Implementation:
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 
 // data formats
+#include "SimDataFormats/Associations/interface/TrackToTrackingParticleAssociator.h"
 #include "SimDataFormats/Associations/interface/VertexToTrackingVertexAssociator.h"
+#include "CommonTools/Utils/interface/associationMapFilterValues.h"
+
+#include "CommonTools/RecoUtils/interface/PFCand_AssoMapAlgos.h"
 
 // tree/histogram writing
 #include "FWCore/ServiceRegistry/interface/Service.h"
@@ -62,15 +66,30 @@ class TrackVertexAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResource
     virtual void endJob() override;
 
     // ----------member data ---------------------------
-    std::vector<edm::InputTag> associators;
+    // Config parameters
+    bool UseAssociators;
+
+    // TrackingParticle collections
     edm::EDGetTokenT<TrackingParticleCollection> label_tp_effic;
     edm::EDGetTokenT<TrackingParticleCollection> label_tp_fake;
-    edm::EDGetTokenT<TrackingVertexCollection> label_tv;
 
+    // reco::Track collections
     std::vector<edm::InputTag> label;
+    std::vector<edm::EDGetTokenT<edm::View<reco::Track> > > labelToken;
+    // std::vector<edm::EDGetTokenT<edm::View<TrajectorySeed> > > labelTokenSeed;
 
+    // Track-TrackingParticle associators or associator maps
+    std::vector<edm::InputTag> associators;
+    std::vector<edm::EDGetTokenT<reco::TrackToTrackingParticleAssociator>> associatorTokens;
+    std::vector<edm::EDGetTokenT<reco::SimToRecoCollection>> associatormapStRs;
+    std::vector<edm::EDGetTokenT<reco::RecoToSimCollection>> associatormapRtSs;
+
+    // For vertex performance only
+    edm::EDGetTokenT<TrackingVertexCollection> label_tv;
     edm::EDGetTokenT<edm::View<reco::Vertex> > recoVertexToken_;
     edm::EDGetTokenT<reco::VertexToTrackingVertexAssociator> vertexAssociatorToken_;
+
+    edm::EDGetTokenT<PFCandToVertexAssMap> pfCandidateToVertexAssociationsToken_;
 
     // TTree objects
     TTree* outputTree;
@@ -80,16 +99,36 @@ class TrackVertexAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResource
     struct outputClass {
       public:
         // per-TrackingVertex quantities
-        std::vector<int> tv_nMatch; // number of matched reco::Vertex
+        std::vector<int>    tv_nMatch; // number of matched reco::Vertex
+        std::vector<int>    tv_tag; // 0 = HS, 1 = PU
+        std::vector<int>    tv_n_tracks;
+        std::vector<double> tv_sumEt_tracks;
+        std::vector<double> tv_sumPt2_tracks;
+        std::vector<double> tv_qualitySum;
+        std::vector<double> tv_x;
+        std::vector<double> tv_y;
+        std::vector<double> tv_z;
         // per-reco::Vertex quantities
-        std::vector<int> rv_nMatch; // number of matched TrackingVertex
+        std::vector<int>    rv_nMatch; // number of matched TrackingVertex
+        std::vector<int>    rv_n_tracks;
+        std::vector<double> rv_sumEt_tracks;
+        std::vector<double> rv_sumPt2_tracks;
+        std::vector<double> rv_x;
+        std::vector<double> rv_y;
+        std::vector<double> rv_z;
     };
     outputClass output;
+    // const values for tv_tag
+    static const int TV_TAG_UNDEFINED = -1; 
+    static const int TV_TAG_HS = 0; // TrackingVertex originates from HS
+    static const int TV_TAG_PU = 1; // TrackingVertex originates from PU
 };
 
 //
 // constants, enums and typedefs
 //
+// from CommonTools/RecoUtils/plugins/PFCand_AssoMap.cc
+typedef edm::AssociationMap<edm::OneToManyWithQuality< reco::VertexCollection, reco::PFCandidateCollection, int> > PFCandToVertexAssMap;
 
 //
 // static data member definitions
@@ -104,15 +143,63 @@ TrackVertexAnalyzer::TrackVertexAnalyzer(const edm::ParameterSet& pset) :
   //now do what ever initialization is needed
   usesResource("TFileService");
 
+  // TrackingParticle collections
+  label_tp_effic = consumes<TrackingParticleCollection>(pset.getParameter< edm::InputTag >("label_tp_effic"));
+  label_tp_fake = consumes<TrackingParticleCollection>(pset.getParameter< edm::InputTag >("label_tp_fake"));
+
+  // reco::Track collections
+  label = pset.getParameter< std::vector<edm::InputTag> >("label");
+  bool isSeed = false;
+  if (isSeed) {
+    // for (auto itag : label) labelTokenSeed.push_back(iC.consumes<edm::View<TrajectorySeed> >(itag));
+  } else {
+    for (auto itag : label) labelToken.push_back(consumes<edm::View<reco::Track> >(itag));
+  }
+
+  // TrackingParticle-Track associators
+  UseAssociators = pset.getParameter< bool >("UseAssociators");
+  associators = pset.getUntrackedParameter< std::vector<edm::InputTag> >("associators");
+  if(UseAssociators) {
+    for (auto const& src: associators) {
+      associatorTokens.push_back(consumes<reco::TrackToTrackingParticleAssociator>(src));
+    }
+  } else {   
+    for (auto const& src: associators) {
+      associatormapStRs.push_back(consumes<reco::SimToRecoCollection>(src));
+      associatormapRtSs.push_back(consumes<reco::RecoToSimCollection>(src));
+    }
+  }
+
+  // TrackingVertex and reco::Vertex collections
   label_tv = consumes<TrackingVertexCollection>(pset.getParameter< edm::InputTag >("label_tv"));
   recoVertexToken_ = consumes<edm::View<reco::Vertex> >(pset.getUntrackedParameter<edm::InputTag>("label_vertex"));
+  // TrackingVertex-Vertex associator
   vertexAssociatorToken_ = consumes<reco::VertexToTrackingVertexAssociator>(pset.getUntrackedParameter<edm::InputTag>("vertexAssociator"));
+
+  ////////////////////////////////////////////////////////////
+  // Inputs for track-vertex algorithm performance monitoring
+  ////////////////////////////////////////////////////////////
+  pfCandidateToVertexAssociationsToken_ = consumes<PFCandToVertexAssMap>(pset.getParameter<edm::InputTag>("srcPFCandidateToVertexAssociations"));
 
   edm::Service<TFileService> fs;
   outputTree = fs->make<TTree>("TVATree", "TVATree");
 
-  outputTree->Branch("tv_nMatch", &output.tv_nMatch);
-  outputTree->Branch("rv_nMatch", &output.rv_nMatch);
+  outputTree->Branch("tv_nMatch"        , &output.tv_nMatch        ) ;
+  outputTree->Branch("tv_tag"           , &output.tv_tag           ) ;
+  outputTree->Branch("tv_n_tracks"      , &output.tv_n_tracks      ) ;
+  outputTree->Branch("tv_sumEt_tracks"  , &output.tv_sumEt_tracks  ) ;
+  outputTree->Branch("tv_sumPt2_tracks" , &output.tv_sumPt2_tracks ) ;
+  outputTree->Branch("tv_qualitySum"    , &output.tv_qualitySum    ) ;
+  outputTree->Branch("tv_x"             , &output.tv_x             ) ;
+  outputTree->Branch("tv_y"             , &output.tv_y             ) ;
+  outputTree->Branch("tv_z"             , &output.tv_z             ) ;
+  outputTree->Branch("rv_nMatch"        , &output.rv_nMatch        ) ;
+  outputTree->Branch("rv_n_tracks"      , &output.rv_n_tracks      ) ;
+  outputTree->Branch("rv_sumEt_tracks"  , &output.rv_sumEt_tracks  ) ;
+  outputTree->Branch("rv_sumPt2_tracks" , &output.rv_sumPt2_tracks ) ;
+  outputTree->Branch("rv_x"             , &output.rv_x             ) ;
+  outputTree->Branch("rv_y"             , &output.rv_y             ) ;
+  outputTree->Branch("rv_z"             , &output.rv_z             ) ;
 }
 
 
@@ -135,16 +222,111 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
 {
   using namespace edm;
   using namespace reco;
-  output.tv_nMatch.clear();
-  output.rv_nMatch.clear();
+  // Clear output trees
+  output.tv_nMatch        .clear();
+  output.tv_tag           .clear();
+  output.tv_n_tracks      .clear();
+  output.tv_sumEt_tracks  .clear();
+  output.tv_sumPt2_tracks .clear();
+  output.tv_qualitySum    .clear();
+  output.tv_x             .clear();
+  output.tv_y             .clear();
+  output.tv_z             .clear();
+  output.rv_nMatch        .clear();
+  output.rv_n_tracks      .clear();
+  output.rv_sumEt_tracks  .clear();
+  output.rv_sumPt2_tracks .clear();
+  output.rv_x             .clear();
+  output.rv_y             .clear();
+  output.rv_z             .clear();
 
-  LogDebug("TrackVertexAnalyzer") << "\n====================================================" << "\n"
+  LogTrace("TrackVertexAnalyzer") << "\n====================================================" << "\n"
     << "Analyzing new event" << "\n"
     << "====================================================\n" << "\n";
+  ////////////////////////////////////////////////////////////
+  // Begin: Track retrieval
+  ////////////////////////////////////////////////////////////
+  ////
+  // TrackingParticle collections
+  //
+  edm::Handle<TrackingParticleCollection>  TPCollectionHeff ;
+  event.getByToken(label_tp_effic,TPCollectionHeff);
+  TrackingParticleCollection const & tPCeff = *(TPCollectionHeff.product());
+  edm::Handle<TrackingParticleCollection>  TPCollectionHfake ;
+  event.getByToken(label_tp_fake,TPCollectionHfake);
+  ////
+  // reco::Track collections and TrackingParticle-Track associators
+  //
+  bool ignoremissingtkcollection_ = false;
+  int w=0; //counter counting the number of sets of histograms
+  int ww = 0, www =0;
+  //
+  //get collections from the event
+  //
+  edm::Handle<View<Track> >  trackCollection;
+  // if( !event.getByToken(labelToken[www], trackCollection) && ignoremissingtkcollection_ ) continue;
+  if( !event.getByToken(labelToken[www], trackCollection) && ignoremissingtkcollection_ ) return;
 
+  reco::RecoToSimCollection const * recSimCollP=nullptr;
+  reco::SimToRecoCollection const * simRecCollP=nullptr;
+  reco::RecoToSimCollection recSimCollL;
+  reco::SimToRecoCollection simRecCollL;
+
+  //associate tracks
+  LogTrace("TrackVertexAnalyzer") << "Analyzing "
+    << label[www] << " with "
+    << associators[ww] <<"\n";
+  if(UseAssociators){
+    edm::Handle<reco::TrackToTrackingParticleAssociator> theAssociator;
+    event.getByToken(associatorTokens[ww], theAssociator);
+
+    LogTrace("TrackVertexAnalyzer") << "Calling associateRecoToSim method" << "\n";
+    recSimCollL = std::move(theAssociator->associateRecoToSim(trackCollection,
+          TPCollectionHfake));
+    recSimCollP = &recSimCollL;
+    LogTrace("TrackVertexAnalyzer") << "Calling associateSimToReco method" << "\n";
+    simRecCollL = std::move(theAssociator->associateSimToReco(trackCollection,
+          TPCollectionHeff));
+    simRecCollP = &simRecCollL;
+  }
+  else{
+    Handle<reco::SimToRecoCollection > simtorecoCollectionH;
+    event.getByToken(associatormapStRs[ww], simtorecoCollectionH);
+    simRecCollP = simtorecoCollectionH.product();
+
+    // We need to filter the associations of the current track
+    // collection only from SimToReco collection, otherwise the
+    // SimToReco histograms get false entries
+    simRecCollL = associationMapFilterValues(*simRecCollP, *trackCollection);
+    simRecCollP = &simRecCollL;
+
+    Handle<reco::RecoToSimCollection > recotosimCollectionH;
+    event.getByToken(associatormapRtSs[ww],recotosimCollectionH);
+    recSimCollP = recotosimCollectionH.product();
+
+    // In general, we should filter also the RecoToSim collection.
+    // But, that would require changing the input type of TPs to
+    // View<TrackingParticle>, and either replace current
+    // associator interfaces with (View<Track>, View<TP>) or
+    // adding the View,View interface (same goes for
+    // RefToBaseVector,RefToBaseVector). Since there is currently
+    // no compelling-enough use-case, we do not filter the
+    // RecoToSim collection here. If an association using a subset
+    // of the Sim collection is needed, user has to produce such
+    // an association explicitly.
+  }
+
+  reco::RecoToSimCollection const & recSimColl = *recSimCollP;
+  reco::SimToRecoCollection const & simRecColl = *simRecCollP;
+  w++;
+  ////////////////////////////////////////////////////////////
+  // End: Track retrieval
+  ////////////////////////////////////////////////////////////
+
+  // Tracking Vertex collection
   edm::Handle<TrackingVertexCollection> htv;
   event.getByToken(label_tv, htv);
-
+  // reco::Vertex collection
   edm::Handle<edm::View<reco::Vertex> > hvertex;
   event.getByToken(recoVertexToken_, hvertex);
 
@@ -152,32 +334,52 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
   event.getByToken(vertexAssociatorToken_, hvassociator);
 
   // Get RECO-to-SIM vertex association
-  LogDebug("TrackVertexAnalyzer") << "Get RECO-to-SIM vertex association\n";
+  LogTrace("TrackVertexAnalyzer") << "Get RECO-to-SIM vertex association";
   auto v_r2s = hvassociator->associateRecoToSim(hvertex, htv);
-  LogDebug("TrackVertexAnalyzer") << "hvertex->size(): " << hvertex->size() << std::endl;
+  LogTrace("TrackVertexAnalyzer") << "hvertex->size(): " << hvertex->size() << std::endl;
   for ( unsigned int irv = 0; irv != hvertex->size(); irv++ ) {
-    LogDebug("TrackVertexAnalyzer") << "Matching to RECO vertex: " << irv << std::endl;
+    LogTrace("TrackVertexAnalyzer") << "Matching to RECO vertex: " << irv << std::endl;
     int nMatch = 0;
     auto rvRef = hvertex->refAt(irv);
-    LogDebug("TrackVertexAnalyzer") << "rvRef == NULL: " << rvRef.isNull() << std::endl;
+    LogTrace("TrackVertexAnalyzer") << "rvRef == NULL: " << rvRef.isNull() << std::endl;
     // Skip unmatched RECO vertices
     if ( v_r2s.find(rvRef) != v_r2s.end() ) {
       auto vec_tv_quality = v_r2s[rvRef];
       for (const auto tv_quality : vec_tv_quality) {
         TrackingVertexRef tv = tv_quality.first;
-        LogDebug("TrackVertexAnalyzer") << tv->nG4Vertices() << std::endl;
+        LogTrace("TrackVertexAnalyzer") << tv->nDaughterTracks() << std::endl;
+        LogTrace("TrackVertexAnalyzer") << tv->nSourceTracks() << std::endl;
         nMatch++;
       }
     }
-    LogDebug("TrackVertexAnalyzer") << "Matched " << nMatch << " SIM vertices to RECO vertex: " << irv << std::endl;
-    output.rv_nMatch.push_back(nMatch);
+    LogTrace("TrackVertexAnalyzer") << "Matched " << nMatch << " SIM vertices to RECO vertex: " << irv << std::endl;
+    int n_tracks = 0;
+    double sumEt = 0;
+    double sumPt2 = 0;
+    for ( auto track = rvRef->tracks_begin(); track != rvRef->tracks_end(); track++ ) {
+      n_tracks++;
+      sumEt += (*track)->pt();
+      sumPt2 += TMath::Power( (*track)->pt(), 2 );
+    }
+    output.rv_nMatch        .push_back ( nMatch     ) ;
+    output.rv_n_tracks      .push_back ( n_tracks   ) ;
+    output.rv_sumEt_tracks  .push_back ( sumEt      ) ;
+    output.rv_sumPt2_tracks .push_back ( sumPt2     ) ;
+    output.rv_x             .push_back ( rvRef->x() ) ;
+    output.rv_y             .push_back ( rvRef->y() ) ;
+    output.rv_z             .push_back ( rvRef->z() ) ;
   }
 
   // Get SIM-to-RECO vertex association
   auto v_s2r = hvassociator->associateSimToReco(hvertex, htv);
   int currentEvent = -1;
+  LogTrace("TrackVertexAnalyzer") << "Number of SIM vertices in collection: " << htv->size() << std::endl;
   for ( unsigned int itv = 0; itv != htv->size(); itv++ ) {
     int nMatch = 0;
+    int tag = TV_TAG_UNDEFINED;
+    double sumEt = 0;
+    double sumPt2 = 0;
+    double qualitySum = 0;
     // auto tv = htv[itv];
     // edm::Ref<TrackingVertexCollection> tvRef(htv, itv);
     const TrackingVertexRef tvRef(htv, itv);
@@ -187,21 +389,73 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
       if(tvRef->eventId().bunchCrossing() != 0) continue;
       if(tvRef->eventId().event() != currentEvent) {
         currentEvent = tvRef->eventId().event();
+        if ( currentEvent == 0 ) tag = TV_TAG_HS;
+        else                     tag = TV_TAG_PU;
       }
       else {
         continue;
       }
-      LogDebug("TrackVertexAnalyzer") << "Matching to SIM vertex: " << itv << std::endl;
-      LogDebug("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
-      LogDebug("TrackVertexAnalyzer") << "currentEvent: " << currentEvent << std::endl;
+      LogTrace("TrackVertexAnalyzer") << "Matching to SIM vertex: " << itv << std::endl;
+      LogTrace("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
+      LogTrace("TrackVertexAnalyzer") << "currentEvent: " << currentEvent << std::endl;
       const auto vec_rv_quality = v_s2r[tvRef];
       for (const auto rv_quality : vec_rv_quality) {
-        // auto quality = rv_quality.second;
+        auto quality = rv_quality.second;
+        LogTrace("TrackVertexAnalyzer") << "SIM-RECO association quality: " << quality;
+        qualitySum += quality;
         nMatch++;
       }
+      for ( const auto track : tvRef->daughterTracks() ) {
+        sumEt += track->pt();
+        sumPt2 += TMath::Power( track->pt(), 2 );
+      }
+      output . tv_nMatch        . push_back( nMatch );
+      output . tv_tag           . push_back( tag );
+      output . tv_n_tracks      . push_back( tvRef->nDaughterTracks() );
+      output . tv_sumEt_tracks  . push_back( sumEt );
+      output . tv_sumPt2_tracks . push_back( sumPt2 );
+      output . tv_qualitySum    . push_back( qualitySum );
+      output . tv_x             . push_back( tvRef->position().x() );
+      output . tv_y             . push_back( tvRef->position().y() );
+      output . tv_z             . push_back( tvRef->position().z() );
     }
-    output.tv_nMatch.push_back(nMatch);
   }
+
+  edm::Handle<PFCandToVertexAssMap> pfCandidateToVertexAssociations;
+  event.getByToken(pfCandidateToVertexAssociationsToken_, pfCandidateToVertexAssociations);
+
+  // Loop over vertex-PF association
+  for ( PFCandToVertexAssMap::const_iterator vertexToCand = pfCandidateToVertexAssociations->begin();
+    vertexToCand != pfCandidateToVertexAssociations->end(); ++vertexToCand ) {
+    reco::VertexRef vertex = vertexToCand->key;
+    const PFCandQualityPairVector& pfCandidates_vertex = vertexToCand->val;
+    LogTrace("TrackVertexAnalyzer") << "Looking for pfCand->trackRef in recSimColl.";
+    // float matchingEfficiency = 0;
+    float nMatch = 0, nTracks = 0;
+    for ( const auto pfCandidate_vertex : pfCandidates_vertex ) {
+      const PFCandidateRef& pfRef = (pfCandidate_vertex).first;
+      const reco::TrackRef& trackRef = pfRef->trackRef();
+      auto trackBaseRef = RefToBase<reco::Track>(trackRef);
+      if ( recSimColl.find(trackBaseRef) != recSimColl.end() ) {
+        nMatch++;
+        // LogTrace("TrackVertexAnalyzer") << "Retrieving vec_tp_quality.";
+        auto vec_tp_quality = recSimColl[trackBaseRef];
+      }
+      nTracks++;
+      // auto pfCandTrack = RefToBase<reco::Track>(*trackRef);
+      // for ( const auto recSim = recSimColl.begin(); recSim != recSimColl.end(); recSim++ ) {
+      //   Ref<>(recSim->key);
+      // }
+      // if ( recSimColl.find(pfCandTrack) != recSimColl.end() ) {
+      //   LogTrace("TrackVertexAnalyzer") << "Found trackRef in recSimColl.\n";
+      // }
+      // else {
+      //   LogTrace("TrackVertexAnalyzer") << "Found trackRef in recSimColl.\n";
+      // }
+    }
+    LogTrace("TrackVertexAnalyzer") << "Found " << nMatch << " / " << nTracks << " tracks in recSimColl.";
+  }
+
 
   // Write out outputTree
   outputTree->Fill();
