@@ -19,3 +19,5 @@ git clone https://github.com/yhshin11/TrackVertexAnalyzer.git
 USER_CXXFLAGS="-DEDM_ML_DEBUG -g" scram b -v -j8
 cmsRun TrackVertexAnalyzer/test/TrackVertexAnalyzer_cfg.py	
 ```
+
+This produces a bare ROOT file named "tva_tree.root". Within this ROOT file, the directory "trackVertexAnalyzer" contains a TTree named "TVATree", which branches corresponding to various quantities related to TrackingVertex or reco::Vertex objects.
