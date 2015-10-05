@@ -64,6 +64,9 @@ class TrackVertexAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResource
     virtual void beginJob() override;
     virtual void analyze(const edm::Event&, const edm::EventSetup&) override;
     virtual void endJob() override;
+    
+    // ----------utility functions ---------------------------
+    template <class T> bool vertexSelector(T t);
 
     // ----------member data ---------------------------
     // Config parameters
@@ -113,6 +116,8 @@ class TrackVertexAnalyzer : public edm::one::EDAnalyzer<edm::one::SharedResource
         std::vector<int>    rv_n_tracks;
         std::vector<double> rv_sumEt_tracks;
         std::vector<double> rv_sumPt2_tracks;
+        std::vector<double> rv_sumEt_tv; // track sumEt of matched TrackingVertex - Only when nMatch==1
+        std::vector<double> rv_sumPt2_tv; // track sumPt2 of matched TrackingVertex - Only when nMatch==1
         std::vector<double> rv_x;
         std::vector<double> rv_y;
         std::vector<double> rv_z;
@@ -197,6 +202,8 @@ TrackVertexAnalyzer::TrackVertexAnalyzer(const edm::ParameterSet& pset) :
   outputTree->Branch("rv_n_tracks"      , &output.rv_n_tracks      ) ;
   outputTree->Branch("rv_sumEt_tracks"  , &output.rv_sumEt_tracks  ) ;
   outputTree->Branch("rv_sumPt2_tracks" , &output.rv_sumPt2_tracks ) ;
+  outputTree->Branch("rv_sumEt_tv"      , &output.rv_sumEt_tv      ) ;
+  outputTree->Branch("rv_sumPt2_tv"     , &output.rv_sumPt2_tv     ) ;
   outputTree->Branch("rv_x"             , &output.rv_x             ) ;
   outputTree->Branch("rv_y"             , &output.rv_y             ) ;
   outputTree->Branch("rv_z"             , &output.rv_z             ) ;
@@ -236,6 +243,8 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
   output.rv_n_tracks      .clear();
   output.rv_sumEt_tracks  .clear();
   output.rv_sumPt2_tracks .clear();
+  output.rv_sumEt_tv      .clear();
+  output.rv_sumPt2_tv     .clear();
   output.rv_x             .clear();
   output.rv_y             .clear();
   output.rv_z             .clear();
@@ -341,12 +350,15 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
     LogTrace("TrackVertexAnalyzer") << "Matching to RECO vertex: " << irv << std::endl;
     int nMatch = 0;
     auto rvRef = hvertex->refAt(irv);
+    // if ( !vertexSelector<decltype(rvRef)>(rvRef) ) continue;
+    if ( !vertexSelector(rvRef) ) continue;
     LogTrace("TrackVertexAnalyzer") << "rvRef == NULL: " << rvRef.isNull() << std::endl;
     // Skip unmatched RECO vertices
+    TrackingVertexRef tv;
     if ( v_r2s.find(rvRef) != v_r2s.end() ) {
       auto vec_tv_quality = v_r2s[rvRef];
       for (const auto tv_quality : vec_tv_quality) {
-        TrackingVertexRef tv = tv_quality.first;
+        tv = tv_quality.first;
         LogTrace("TrackVertexAnalyzer") << tv->nDaughterTracks() << std::endl;
         LogTrace("TrackVertexAnalyzer") << tv->nSourceTracks() << std::endl;
         nMatch++;
@@ -361,10 +373,20 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
       sumEt += (*track)->pt();
       sumPt2 += TMath::Power( (*track)->pt(), 2 );
     }
+    double sumEt_tv = 0;
+    double sumPt2_tv = 0;
+    if ( nMatch == 1 ) {
+      for ( const auto track : tv->daughterTracks() ) {
+        sumEt_tv += track->pt();
+        sumPt2_tv += TMath::Power( track->pt(), 2 );
+      }
+    }
     output.rv_nMatch        .push_back ( nMatch     ) ;
     output.rv_n_tracks      .push_back ( n_tracks   ) ;
     output.rv_sumEt_tracks  .push_back ( sumEt      ) ;
     output.rv_sumPt2_tracks .push_back ( sumPt2     ) ;
+    output.rv_sumEt_tv      .push_back ( sumEt_tv   ) ;
+    output.rv_sumPt2_tv     .push_back ( sumPt2_tv  ) ;
     output.rv_x             .push_back ( rvRef->x() ) ;
     output.rv_y             .push_back ( rvRef->y() ) ;
     output.rv_z             .push_back ( rvRef->z() ) ;
@@ -383,6 +405,8 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
     // auto tv = htv[itv];
     // edm::Ref<TrackingVertexCollection> tvRef(htv, itv);
     const TrackingVertexRef tvRef(htv, itv);
+    // LogTrace("TrackVertexAnalyzer") << "BX: " << tvRef->eventId().bunchCrossing() << std::endl;
+    // LogTrace("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
     if ( v_s2r.find(tvRef) != v_s2r.end() ) {
       // Only run over primary vertices of the in-time pileup
       // events (BX=0, first vertex in each of the events)
@@ -395,12 +419,14 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
       else {
         continue;
       }
-      LogTrace("TrackVertexAnalyzer") << "Matching to SIM vertex: " << itv << std::endl;
-      LogTrace("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
-      LogTrace("TrackVertexAnalyzer") << "currentEvent: " << currentEvent << std::endl;
+      // LogTrace("TrackVertexAnalyzer") << "Matching to SIM vertex: " << itv << std::endl;
+      // LogTrace("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
+      // LogTrace("TrackVertexAnalyzer") << "currentEvent: " << currentEvent << std::endl;
       const auto vec_rv_quality = v_s2r[tvRef];
       for (const auto rv_quality : vec_rv_quality) {
+        auto rv = rv_quality.first;
         auto quality = rv_quality.second;
+        if (!vertexSelector(rv)) continue;
         LogTrace("TrackVertexAnalyzer") << "SIM-RECO association quality: " << quality;
         qualitySum += quality;
         nMatch++;
@@ -1016,6 +1042,13 @@ TrackVertexAnalyzer::fillDescriptions(edm::ConfigurationDescriptions& descriptio
   edm::ParameterSetDescription desc;
   desc.setUnknown();
   descriptions.addDefault(desc);
+}
+
+template <class T>
+bool
+TrackVertexAnalyzer::vertexSelector(T vertex) {
+  bool vertexIsGood = (!vertex->isFake()) && (vertex->ndof()>4) && (fabs(vertex->z()<=24.0)) && (vertex->position().Rho()<=2.0);
+  return vertexIsGood;
 }
 
 //define this as a plug-in
