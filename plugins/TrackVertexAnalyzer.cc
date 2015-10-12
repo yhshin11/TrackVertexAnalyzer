@@ -407,18 +407,18 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
     const TrackingVertexRef tvRef(htv, itv);
     // LogTrace("TrackVertexAnalyzer") << "BX: " << tvRef->eventId().bunchCrossing() << std::endl;
     // LogTrace("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
+    if(tvRef->eventId().bunchCrossing() != 0) continue;
+    if(tvRef->eventId().event() != currentEvent) {
+      currentEvent = tvRef->eventId().event();
+      if ( currentEvent == 0 ) tag = TV_TAG_HS;
+      else                     tag = TV_TAG_PU;
+    }
+    else {
+      continue;
+    }
     if ( v_s2r.find(tvRef) != v_s2r.end() ) {
       // Only run over primary vertices of the in-time pileup
       // events (BX=0, first vertex in each of the events)
-      if(tvRef->eventId().bunchCrossing() != 0) continue;
-      if(tvRef->eventId().event() != currentEvent) {
-        currentEvent = tvRef->eventId().event();
-        if ( currentEvent == 0 ) tag = TV_TAG_HS;
-        else                     tag = TV_TAG_PU;
-      }
-      else {
-        continue;
-      }
       // LogTrace("TrackVertexAnalyzer") << "Matching to SIM vertex: " << itv << std::endl;
       // LogTrace("TrackVertexAnalyzer") << "event: " << tvRef->eventId().event() << std::endl;
       // LogTrace("TrackVertexAnalyzer") << "currentEvent: " << currentEvent << std::endl;
@@ -435,16 +435,16 @@ TrackVertexAnalyzer::analyze(const edm::Event& event, const edm::EventSetup& set
         sumEt += track->pt();
         sumPt2 += TMath::Power( track->pt(), 2 );
       }
-      output . tv_nMatch        . push_back( nMatch );
-      output . tv_tag           . push_back( tag );
-      output . tv_n_tracks      . push_back( tvRef->nDaughterTracks() );
-      output . tv_sumEt_tracks  . push_back( sumEt );
-      output . tv_sumPt2_tracks . push_back( sumPt2 );
-      output . tv_qualitySum    . push_back( qualitySum );
-      output . tv_x             . push_back( tvRef->position().x() );
-      output . tv_y             . push_back( tvRef->position().y() );
-      output . tv_z             . push_back( tvRef->position().z() );
     }
+    output . tv_nMatch        . push_back( nMatch );
+    output . tv_tag           . push_back( tag );
+    output . tv_n_tracks      . push_back( tvRef->nDaughterTracks() );
+    output . tv_sumEt_tracks  . push_back( sumEt );
+    output . tv_sumPt2_tracks . push_back( sumPt2 );
+    output . tv_qualitySum    . push_back( qualitySum );
+    output . tv_x             . push_back( tvRef->position().x() );
+    output . tv_y             . push_back( tvRef->position().y() );
+    output . tv_z             . push_back( tvRef->position().z() );
   }
 
   edm::Handle<PFCandToVertexAssMap> pfCandidateToVertexAssociations;
